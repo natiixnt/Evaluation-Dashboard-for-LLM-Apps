@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Evaluation Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b1021;
+      --card: #151a2e;
+      --accent: #6ee7b7;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+    }
+    body {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(110, 231, 183, 0.1), transparent 35%), radial-gradient(circle at 80% 10%, rgba(96, 165, 250, 0.12), transparent 35%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 12px 0; font-size: 26px; letter-spacing: -0.5px; }
+    p { margin: 0 0 16px 0; color: var(--muted); }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .card { background: var(--card); border: 1px solid #1f2937; border-radius: 12px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+    label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); display: block; }
+    input, select { margin-top: 6px; background: #0f172a; color: var(--text); border: 1px solid #1f2937; border-radius: 8px; padding: 8px 10px; font-size: 14px; min-width: 160px; }
+    button { background: var(--accent); color: #0f172a; border: none; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+    .metrics { display: flex; gap: 14px; flex-wrap: wrap; }
+    .metric { background: #0f172a; border-radius: 10px; padding: 10px 12px; min-width: 120px; border: 1px solid #1f2937; }
+    .metric span { display: block; }
+    .metric .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric .value { font-size: 20px; font-weight: 600; }
+    @media (max-width: 720px) { .controls { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Evaluation Dashboard</h1>
+    <p>Success, latency, and ratings for LLM prompts. Data comes from the FastAPI backend.</p>
+  </header>
+
+  <section class="card">
+    <div class="controls">
+      <div>
+        <label for="model">Model</label>
+        <input id="model" placeholder="gpt-4.1-mini" />
+      </div>
+      <div>
+        <label for="prompt">Prompt version</label>
+        <input id="prompt" placeholder="onboarding_v5" />
+      </div>
+      <div>
+        <label for="start">Start (UTC)</label>
+        <input id="start" type="date" />
+      </div>
+      <div>
+        <label for="end">End (UTC)</label>
+        <input id="end" type="date" />
+      </div>
+      <div style="align-self: flex-end;">
+        <button id="refreshBtn">Refresh</button>
+      </div>
+    </div>
+    <div class="metrics" id="summaryMetrics"></div>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Success Rate (daily)</h3>
+      <div id="successChart" style="height:320px;"></div>
+    </div>
+    <div class="card">
+      <h3>Latency Percentiles</h3>
+      <div id="latencyChart" style="height:320px;"></div>
+    </div>
+  </div>
+
+  <script>
+    const apiBase = window.API_BASE || "";
+
+    function sevenDaysAgoISO() {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      return d.toISOString().slice(0, 10);
+    }
+
+    document.getElementById("start").value = sevenDaysAgoISO();
+    document.getElementById("end").value = new Date().toISOString().slice(0, 10);
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      return res.json();
+    }
+
+    function buildParams() {
+      const model = document.getElementById("model").value || null;
+      const prompt = document.getElementById("prompt").value || null;
+      const start = document.getElementById("start").value || null;
+      const end = document.getElementById("end").value || null;
+      const params = new URLSearchParams();
+      if (model) params.append("model", model);
+      if (prompt) params.append("prompt", prompt);
+      if (start) params.append("start", new Date(start).toISOString());
+      if (end) {
+        const endDate = new Date(end);
+        endDate.setDate(endDate.getDate() + 1); // inclusive end date
+        params.append("end", endDate.toISOString());
+      }
+      return params.toString();
+    }
+
+    function renderSummary(data) {
+      const container = document.getElementById("summaryMetrics");
+      container.innerHTML = "";
+      if (!data.length) {
+        container.innerHTML = "<span style='color:var(--muted)'>No data found.</span>";
+        return;
+      }
+      data.forEach((row) => {
+        const card = document.createElement("div");
+        card.className = "metric";
+        card.innerHTML = `
+          <span class="label">${row.model} · ${row.prompt_version}</span>
+          <span class="value">${(row.success_rate * 100).toFixed(1)}% success</span>
+          <span class="label">p50: ${row.p50_ms} ms · p95: ${row.p95_ms} ms</span>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderCharts(timeseries) {
+      if (!timeseries.length) {
+        Plotly.purge("successChart");
+        Plotly.purge("latencyChart");
+        return;
+      }
+      const grouped = {};
+      timeseries.forEach((row) => {
+        const key = `${row.model} • ${row.prompt_version}`;
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(row);
+      });
+
+      const successTraces = [];
+      const p50 = [];
+      const p95 = [];
+      Object.entries(grouped).forEach(([key, rows]) => {
+        rows.sort((a, b) => new Date(a.date) - new Date(b.date));
+        const dates = rows.map((r) => r.date);
+        successTraces.push({
+          x: dates,
+          y: rows.map((r) => (r.success_rate * 100).toFixed(2)),
+          mode: "lines+markers",
+          name: key,
+        });
+        p50.push({
+          x: dates, y: rows.map((r) => r.p50_latency || 0), mode: "lines+markers", name: `${key} p50`
+        });
+        p95.push({
+          x: dates, y: rows.map((r) => r.p95_latency || 0), mode: "lines+markers", name: `${key} p95`
+        });
+      });
+
+      Plotly.newPlot("successChart", successTraces, {
+        margin: { t: 20, r: 10, l: 40, b: 40 },
+        yaxis: { title: "Success %", rangemode: "tozero" },
+        paper_bgcolor: "transparent",
+        plot_bgcolor: "transparent",
+        font: { color: "#e5e7eb" },
+      }, { displayModeBar: false });
+
+      Plotly.newPlot("latencyChart", [...p50, ...p95], {
+        margin: { t: 20, r: 10, l: 50, b: 40 },
+        yaxis: { title: "Latency (ms)", rangemode: "tozero" },
+        paper_bgcolor: "transparent",
+        plot_bgcolor: "transparent",
+        font: { color: "#e5e7eb" },
+      }, { displayModeBar: false });
+    }
+
+    async function refresh() {
+      try {
+        const qs = buildParams();
+        const [summary, timeseries] = await Promise.all([
+          fetchJson(`${apiBase}/metrics/requests?${qs}`),
+          fetchJson(`${apiBase}/metrics/timeseries?${qs}`),
+        ]);
+        renderSummary(summary);
+        renderCharts(timeseries);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to load metrics. Check console for details.");
+      }
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>

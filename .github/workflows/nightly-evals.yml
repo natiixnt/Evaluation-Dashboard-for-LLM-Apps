@@ -1,0 +1,35 @@
+name: nightly-evals
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluations
+        env:
+          EVAL_API_BASE: ${{ secrets.EVAL_API_BASE }}
+          EVAL_API_TOKEN: ${{ secrets.EVAL_API_TOKEN }}
+        run: |
+          python scripts/run_evals.py --prompt latest --model gpt-4.1-mini --limit 50 --output metrics.json
+
+      - name: Upload results
+        env:
+          EVAL_API_BASE: ${{ secrets.EVAL_API_BASE }}
+          EVAL_API_TOKEN: ${{ secrets.EVAL_API_TOKEN }}
+        run: |
+          curl -f -H "Authorization: Bearer $EVAL_API_TOKEN" \
+               -H "Content-Type: application/json" \
+               -d @metrics.json "$EVAL_API_BASE/metrics/import"
