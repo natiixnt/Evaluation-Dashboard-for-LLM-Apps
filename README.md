@@ -3,14 +3,14 @@
 Small FastAPI + PostgreSQL service that stores LLM request logs, evaluates them, and exposes metrics for dashboards and scheduled reports.
 
 ## Project structure
-- `app/` — FastAPI app, routers, settings, SQLAlchemy models.
-- `app/api/metrics.py` — metrics + import endpoints.
-- `app/api/admin.py` — management endpoints (refresh materialized view).
-- `app/models.py` — `RequestLog` table + `mv_daily_metrics` view mapping.
-- `alembic/` — migrations (partitioned table + materialized view).
-- `scripts/run_evals.py` — synthetic evaluation generator (used by CI).
-- `static/index.html` — Plotly dashboard.
-- `.github/workflows/nightly-evals.yml` — nightly scheduled evaluations + upload.
+- `app/` - FastAPI app, routers, settings, SQLAlchemy models.
+- `app/api/metrics.py` - metrics + import endpoints.
+- `app/api/admin.py` - management endpoints (refresh materialized view).
+- `app/models.py` - `RequestLog` table + `mv_daily_metrics` view mapping.
+- `alembic/` - migrations (partitioned table + materialized view).
+- `scripts/run_evals.py` - synthetic evaluation generator (used by CI).
+- `static/index.html` - Plotly dashboard.
+- `.github/workflows/nightly-evals.yml` - nightly scheduled evaluations + upload.
 
 ## Configuration
 Environment variables (can be placed in `.env`):
@@ -34,11 +34,11 @@ uvicorn app.main:app --reload --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-800
 Open `http://localhost:8000` to view the Plotly dashboard. API docs: `http://localhost:8000/docs`.
 
 ## API quick reference
-- `GET /metrics/requests` — aggregated success rate + p50/p95 latency (filters: `model`, `prompt`, `start`, `end`).
-- `GET /metrics/ratings` — average user ratings.
-- `GET /metrics/timeseries` — daily metrics (uses `mv_daily_metrics`, falls back to live aggregation).
-- `POST /metrics/import` — batch ingest logs (Bearer token required if `INGEST_TOKEN` is set).
-- `POST /admin/refresh-materialized` — refresh `mv_daily_metrics` (Bearer token required if `INGEST_TOKEN` is set).
+- `GET /metrics/requests` - aggregated success rate + p50/p95 latency (filters: `model`, `prompt`, `start`, `end`).
+- `GET /metrics/ratings` - average user ratings.
+- `GET /metrics/timeseries` - daily metrics (uses `mv_daily_metrics`, falls back to live aggregation).
+- `POST /metrics/import` - batch ingest logs (Bearer token required if `INGEST_TOKEN` is set).
+- `POST /admin/refresh-materialized` - refresh `mv_daily_metrics` (Bearer token required if `INGEST_TOKEN` is set).
 
 Time filtering: defaults to last 7 days for `/metrics/requests`, 30 days for ratings/timeseries when `start` is omitted.
 
@@ -56,8 +56,8 @@ The script writes `metrics.json` compatible with `/metrics/import`.
 
 ## Nightly evaluations (GitHub Actions)
 `.github/workflows/nightly-evals.yml` runs nightly at 02:00 UTC, generates synthetic metrics via `scripts/run_evals.py`, then uploads to `/metrics/import` using secrets:
-- `EVAL_API_BASE` — API base URL
-- `EVAL_API_TOKEN` — bearer token matching `INGEST_TOKEN`
+- `EVAL_API_BASE` - API base URL
+- `EVAL_API_TOKEN` - bearer token matching `INGEST_TOKEN`
 
 ## Materialized view maintenance
 Run the refresh endpoint or execute:
